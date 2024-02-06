@@ -5,14 +5,27 @@ const RUNTIME_BUN = 3;
 
 const runtime = detectRuntime();
 
+const nodePath = runtime === RUNTIME_NODE ?
+  await import('path') : undefined;
 const denoPath = runtime === RUNTIME_DENO ?
   await import("https://deno.land/std@0.214.0/path/mod.ts") : undefined;
 const nodeFs = isNode() ? await import('fs') : undefined;
 
 
 class File {
+  constructor(f, start, end) {
+    this._file = f;
+    this._start = start;
+    this._end = end;
+    this._size = end - start;
+  }
+
+  get size() {
+    return this._size;
+  }
+
   stream() {
-    return this._readable;
+    throw new Error("Must implement stream()");
   }
 
   slice() {
@@ -30,28 +43,46 @@ class DirectoryTree {
   }
 }
 
-class NodeFile extends File {
-  constructor(f) {
-    super(f);
-    this._readable = f.readableWebStream();
+class NodeFile extends File { 
+
+  constructor(f, start, end) {
+    super(f, start, end);
   }
 
   slice(start, end, contentType) {
-    return this._file.slice(start, end, contentType);
+    return new NodeFile(this._file, start ? start : this._start, end ? end : this._end);
+  }
+
+  // TODO: implement backpressure
+  stream() {
+    const nodeStream = this._file.createReadStream({
+      start: this._start,
+      end: this._end,
+    });
+
+    let controller;
+
+    const rs = new ReadableStream({
+      async start(contr) {
+        controller = contr;
+      }
+    });
+
+    nodeStream.on('data', (chunk) => {
+      controller.enqueue(chunk);
+    });
+
+    nodeStream.on('close', (chunk) => {
+      controller.close();
+    });
+
+    return rs;
   }
 }
 
 class DenoFile extends File {
   constructor(f, start, end) {
-    super(f);
-    this._file = f;
-    this._start = start;
-    this._end = end;
-    this._size = end - start;
-  }
-
-  get size() {
-    return this._size;
+    super(f, start, end);
   }
 
   slice(start, end, contentType) {
@@ -98,6 +129,20 @@ class BunFile extends File {
 
   slice(start, end, contentType) {
     return this._file.slice(start, end, contentType);
+  }
+}
+
+class NodeDirectoryTree extends DirectoryTree {
+  constructor(rootPath) {
+    super(rootPath);
+  }
+
+  // TODO: CRITICAL: path security
+  async openFile(path) {
+    const absPath = nodePath.join(this._rootPath, path);
+    const f = await nodeFs.promises.open(absPath); 
+    const fileInfo = await f.stat();
+    return new NodeFile(f, 0, fileInfo.size);
   }
 }
 
@@ -156,6 +201,10 @@ async function openFile(path) {
 
 async function openDirectory(path) {
   switch (runtime) {
+    case RUNTIME_NODE: {
+      return new NodeDirectoryTree(path);
+      break;
+    }
     case RUNTIME_DENO: {
       return new DenoDirectoryTree(path);
       break;
