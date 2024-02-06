@@ -1,9 +1,14 @@
-const nodeFs = isNode() ? await import('fs') : undefined;
-
 const RUNTIME_BROWSER = 0;
 const RUNTIME_NODE = 1;
 const RUNTIME_DENO = 2;
 const RUNTIME_BUN = 3;
+
+const runtime = detectRuntime();
+
+const denoPath = runtime === RUNTIME_DENO ?
+  await import("https://deno.land/std@0.214.0/path/mod.ts") : undefined;
+const nodeFs = isNode() ? await import('fs') : undefined;
+
 
 class File {
   stream() {
@@ -15,12 +20,15 @@ class File {
   }
 }
 
-//class BrowserFile extends File {
-//  constructor(f) {
-//    super(f);
-//    this._readable = f.stream();
-//  }
-//}
+class DirectoryTree {
+  constructor(rootPath) {
+    this._rootPath = rootPath;
+  }
+
+  async openFile(path) {
+    throw new Error("Must implement openFile()");
+  }
+}
 
 class NodeFile extends File {
   constructor(f) {
@@ -93,7 +101,19 @@ class BunFile extends File {
   }
 }
 
-const runtime = detectRuntime();
+class DenoDirectoryTree extends DirectoryTree {
+  constructor(rootPath) {
+    super(rootPath);
+  }
+
+  async openFile(path) {
+    const absPath = denoPath.join(this._rootPath, path);
+    const f = await Deno.open(absPath, { read: true, write: false });
+    const fileInfo = await f.stat();
+    return new DenoFile(f, 0, fileInfo.size);
+  }
+}
+
 
 async function openFile(path) {
   switch (runtime) {
@@ -105,7 +125,6 @@ async function openFile(path) {
         document.body.appendChild(fileInput);
 
         fileInput.addEventListener('change', (evt) => {
-          //resolve(new BrowserFile(fileInput.files[0]));
           resolve(fileInput.files[0]);
           document.body.removeChild(fileInput);
         });
@@ -120,6 +139,7 @@ async function openFile(path) {
       break;
     }
     case RUNTIME_DENO: {
+      // TODO: need to close the files we're opening
       const f = await Deno.open(path);
       const fileInfo = await f.stat();
       return new DenoFile(f, 0, fileInfo.size);
@@ -129,6 +149,19 @@ async function openFile(path) {
       const f = Bun.file(path);
       //return new BunFile(f);
       return f;
+      break;
+    }
+  }
+}
+
+async function openDirectory(path) {
+  switch (runtime) {
+    case RUNTIME_DENO: {
+      return new DenoDirectoryTree(path);
+      break;
+    }
+    default: {
+      throw new Error("Runtime not implemented:", runtime);
       break;
     }
   }
@@ -154,4 +187,5 @@ function isNode() {
 
 export {
   openFile,
+  openDirectory,
 }
