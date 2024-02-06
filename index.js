@@ -6,36 +6,90 @@ const RUNTIME_DENO = 2;
 const RUNTIME_BUN = 3;
 
 class File {
-  get readable() {
+  stream() {
     return this._readable;
+  }
+
+  slice() {
+    throw new Error("Must implement slice()");
   }
 }
 
-class BrowserFile extends File {
-  constructor(f) {
-    super(f);
-    this._readable = f.stream();
-  }
-}
+//class BrowserFile extends File {
+//  constructor(f) {
+//    super(f);
+//    this._readable = f.stream();
+//  }
+//}
 
 class NodeFile extends File {
   constructor(f) {
     super(f);
     this._readable = f.readableWebStream();
   }
+
+  slice(start, end, contentType) {
+    return this._file.slice(start, end, contentType);
+  }
 }
 
 class DenoFile extends File {
-  constructor(f) {
+  constructor(f, start, end) {
     super(f);
-    this._readable = f.readable;
+    this._file = f;
+    this._start = start;
+    this._end = end;
+    this._size = end - start;
+  }
+
+  get size() {
+    return this._size;
+  }
+
+  slice(start, end, contentType) {
+    return new DenoFile(this._file, start ? start : this._start, end ? end : this._end);
+  }
+
+  stream() {
+
+    const self = this;
+
+    if (this._start !== undefined) {
+      return new ReadableStream({
+
+        async start(controller) {
+          await self._file.seek(self._start, Deno.SeekMode.Start);
+          self._reader = self._file.readable.getReader();
+
+        },
+
+        async pull(controller) {
+          const { value, done } = await self._reader.read();
+          if (done) {
+            controller.close();
+          }
+          else {
+            controller.enqueue(value);
+          }
+        }
+      });
+    }
+    else {
+      return this._file.readable;
+    }
   }
 }
 
 class BunFile extends File {
   constructor(f) {
     super(f);
+
+    this._file = f;
     this._readable = f.stream();
+  }
+
+  slice(start, end, contentType) {
+    return this._file.slice(start, end, contentType);
   }
 }
 
@@ -51,7 +105,8 @@ async function openFile(path) {
         document.body.appendChild(fileInput);
 
         fileInput.addEventListener('change', (evt) => {
-          resolve(new BrowserFile(fileInput.files[0]));
+          //resolve(new BrowserFile(fileInput.files[0]));
+          resolve(fileInput.files[0]);
           document.body.removeChild(fileInput);
         });
 
@@ -66,12 +121,14 @@ async function openFile(path) {
     }
     case RUNTIME_DENO: {
       const f = await Deno.open(path);
-      return new DenoFile(f);
+      const fileInfo = await f.stat();
+      return new DenoFile(f, 0, fileInfo.size);
       break;
     }
     case RUNTIME_BUN: {
       const f = Bun.file(path);
-      return new BunFile(f);
+      //return new BunFile(f);
+      return f;
       break;
     }
   }
