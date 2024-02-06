@@ -153,6 +153,47 @@ class BunFile extends File {
   }
 }
 
+class BrowserDirectoryTree extends DirectoryTree {
+  constructor() {
+    const rootPath = '/';
+    super(rootPath);
+
+    this._files = {};
+  }
+
+  async openFile(path) {
+    if (this._files[path] !== undefined) {
+      return this._files[path];
+    }
+    else {
+      throw new Error("No such file", path);
+    }
+  }
+
+  async addFiles() {
+    const files = await new Promise((resolve, reject) => {
+      const fileInput = document.createElement('input');
+      fileInput.setAttribute('type', 'file');
+      fileInput.setAttribute('hidden', '');
+      fileInput.setAttribute('multiple', '');
+      document.body.appendChild(fileInput);
+
+      fileInput.addEventListener('change', (evt) => {
+        resolve(fileInput.files);
+        document.body.removeChild(fileInput);
+      });
+
+      fileInput.click();
+    });
+
+    for (const file of files) {
+      this._files['/' + file.name] = file;
+    }
+
+    return files;
+  }
+}
+
 class NodeDirectoryTree extends DirectoryTree {
   constructor(rootPath) {
     super(rootPath);
@@ -222,6 +263,10 @@ async function openFile(path) {
 
 async function openDirectory(path) {
   switch (runtime) {
+    case RUNTIME_BROWSER: {
+      return new BrowserDirectoryTree(path);
+      break;
+    }
     case RUNTIME_NODE: {
       return new NodeDirectoryTree(path);
       break;
