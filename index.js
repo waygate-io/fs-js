@@ -5,15 +5,6 @@ const RUNTIME_BUN = 3;
 
 const runtime = detectRuntime();
 
-const nodePath = runtime === RUNTIME_NODE ?
-  await import('path') : undefined;
-const denoPath = runtime === RUNTIME_DENO ?
-  await import("https://deno.land/std@0.214.0/path/mod.ts") : undefined;
-const bunPath = runtime === RUNTIME_BUN ?
-  await import('path') : undefined;
-const nodeFs = isNode() ? await import('fs') : undefined;
-
-
 class File {
   constructor(f, start, end) {
     this._file = f;
@@ -227,8 +218,10 @@ class NodeDirectoryTree extends DirectoryTree {
 
   // TODO: CRITICAL: path security
   async openFile(path) {
+    const nodePath = await import('path');
     const absPath = nodePath.join(this._rootPath, path);
-    const f = await nodeFs.promises.open(absPath); 
+    const fs = await import('fs');
+    const f = await fs.promises.open(absPath); 
     const fileInfo = await f.stat();
     return new NodeFile(f, 0, fileInfo.size);
   }
@@ -240,6 +233,7 @@ class DenoDirectoryTree extends DirectoryTree {
   }
 
   async openFile(path) {
+    const denoPath = await import("https://deno.land/std@0.214.0/path/mod.ts");
     const absPath = denoPath.join(this._rootPath, path);
     const f = await Deno.open(absPath, { read: true, write: false });
     const fileInfo = await f.stat();
@@ -253,6 +247,7 @@ class BunDirectoryTree extends DirectoryTree {
   }
 
   async openFile(path) {
+    const bunPath = await import('path');
     const absPath = bunPath.join(this._rootPath, path);
     const f = await Bun.file(absPath);
     // TODO: wrapping in a Response is a hack because Bun file blobs are
@@ -284,7 +279,8 @@ async function openFile(path) {
       break;
     }
     case RUNTIME_NODE: {
-      const f = await nodeFs.promises.open(path); 
+      const fs = await import('fs');
+      const f = await fs.promises.open(path); 
       return new NodeFile(f);
       break;
     }
