@@ -53,7 +53,6 @@ class NodeFile extends File {
     return new NodeFile(this._file, start ? start : this._start, end ? end : this._end);
   }
 
-  // TODO: implement backpressure
   stream() {
     const nodeStream = this._file.createReadStream({
       start: this._start,
@@ -69,6 +68,12 @@ class NodeFile extends File {
         controller = contr;
       },
 
+      pull(contr) {
+        if (contr.desiredSize > 0) {
+          nodeStream.resume();
+        }
+      },
+
       cancel() {
         nodeStream.close();
         done = true;
@@ -77,7 +82,12 @@ class NodeFile extends File {
     });
 
     nodeStream.on('data', (chunk) => {
-      controller.enqueue(chunk);
+      if (controller.desiredSize > 0) {
+        controller.enqueue(chunk);
+      }
+      else {
+        nodeStream.pause();
+      }
     });
 
     nodeStream.on('close', (chunk) => {
