@@ -9,6 +9,8 @@ const nodePath = runtime === RUNTIME_NODE ?
   await import('path') : undefined;
 const denoPath = runtime === RUNTIME_DENO ?
   await import("https://deno.land/std@0.214.0/path/mod.ts") : undefined;
+const bunPath = runtime === RUNTIME_BUN ?
+  await import('path') : undefined;
 const nodeFs = isNode() ? await import('fs') : undefined;
 
 
@@ -140,16 +142,40 @@ class DenoFile extends File {
   }
 }
 
-class BunFile extends File {
+class BunFile {
   constructor(f) {
-    super(f);
+    this._blob = blob;
+  }
 
-    this._file = f;
-    this._readable = f.stream();
+  get size() {
+    return this._blob.size;
   }
 
   slice(start, end, contentType) {
-    return this._file.slice(start, end, contentType);
+    return new BunFile(this._blob.slice(start, end, contentType));
+    //return new BunFile(this._blob, start ? start : this._start, end ? end : this._end);
+  }
+
+  stream() {
+
+    const self = this;
+
+    return new ReadableStream({
+
+      async start(controller) {
+        self._reader = self._blob.stream().getReader();
+      },
+
+      async pull(controller) {
+        const { value, done } = await self._reader.read();
+        if (done) {
+          controller.close();
+        }
+        else {
+          controller.enqueue(value);
+        }
+      }
+    });
   }
 }
 
@@ -221,6 +247,23 @@ class DenoDirectoryTree extends DirectoryTree {
   }
 }
 
+class BunDirectoryTree extends DirectoryTree {
+  constructor(rootPath) {
+    super(rootPath);
+  }
+
+  async openFile(path) {
+    const absPath = bunPath.join(this._rootPath, path);
+    const f = await Bun.file(absPath);
+    // TODO: wrapping in a Response is a hack because Bun file blobs are
+    // currently broken for range requests:
+    // https://github.com/oven-sh/bun/issues/7057
+    const blob = await new Response(f.stream()).blob();
+    return blob;
+    //return new BunFile(f);
+  }
+}
+
 
 async function openFile(path) {
   switch (runtime) {
@@ -273,6 +316,10 @@ async function openDirectory(path) {
     }
     case RUNTIME_DENO: {
       return new DenoDirectoryTree(path);
+      break;
+    }
+    case RUNTIME_BUN: {
+      return new BunDirectoryTree(path);
       break;
     }
     default: {
