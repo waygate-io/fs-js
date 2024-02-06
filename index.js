@@ -60,12 +60,20 @@ class NodeFile extends File {
       end: this._end,
     });
 
+    let done = false;
     let controller;
 
     const rs = new ReadableStream({
+
       async start(contr) {
         controller = contr;
+      },
+
+      cancel() {
+        nodeStream.close();
+        done = true;
       }
+
     });
 
     nodeStream.on('data', (chunk) => {
@@ -73,7 +81,10 @@ class NodeFile extends File {
     });
 
     nodeStream.on('close', (chunk) => {
-      controller.close();
+      if (!done) {
+        controller.close();
+        done = true;
+      }
     });
 
     return rs;
