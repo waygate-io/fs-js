@@ -31,6 +31,9 @@ class DirectoryTree {
     this._rootPath = rootPath;
   }
 
+  /**
+   * @returns {Promise<File>}
+   */
   async openFile(path) {
     throw new Error("Must implement openFile()");
   }
@@ -97,6 +100,8 @@ class NodeFile extends File {
 class DenoFile extends File {
   constructor(f, start, end) {
     super(f, start, end);
+
+    this._reader = null;
   }
 
   slice(start, end, contentType) {
@@ -134,8 +139,9 @@ class DenoFile extends File {
 }
 
 class BunFile {
-  constructor(f) {
+  constructor(blob) {
     this._blob = blob;
+    this._reader = null;
   }
 
   get size() {
@@ -183,7 +189,7 @@ class BrowserDirectoryTree extends DirectoryTree {
       return this._files[path];
     }
     else {
-      throw new Error("No such file", path);
+      throw new Error("No such file: " + path);
     }
   }
 
@@ -303,7 +309,7 @@ async function openFile(path) {
 async function openDirectory(path) {
   switch (runtime) {
     case RUNTIME_BROWSER: {
-      return new BrowserDirectoryTree(path);
+      return new BrowserDirectoryTree();
       break;
     }
     case RUNTIME_NODE: {
@@ -319,7 +325,7 @@ async function openDirectory(path) {
       break;
     }
     default: {
-      throw new Error("Runtime not implemented:", runtime);
+      throw new Error("Runtime not implemented:" + runtime);
       break;
     }
   }
